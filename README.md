@@ -1,1 +1,1 @@
-# convolutional_neural_network
+# Реализация сверточной нейронной сети
