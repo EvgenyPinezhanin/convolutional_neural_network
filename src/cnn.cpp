@@ -16,13 +16,13 @@ void cnn::init_filters() {
         for (int j = 0; j < size_filter; j++) {
             for (int k = 0; k < size_filter; k++) {
                 for (int l = 0; l < size_bgr; l++) {
-                    filters[i][j][k][l] = (gen() - gen.min()) % 16 - 7;
+                    filters[i][j][k][l] = 2.0 * (gen() - gen.min()) / (gen.max() - gen.min()) - 1.0;
                 }
             }
         }
     }
     for (int i = 0; i < count_filters; i++) {
-        filters_shift[i] = (gen() - gen.min()) % 16 - 7;
+        filters_shift[i] = 2.0 * (gen() - gen.min()) / (gen.max() - gen.min()) - 1.0;
     }
 }
 
@@ -33,30 +33,30 @@ void cnn::init_w() {
     for (int i = 0; i < count_channel; i++) {
         for (int j = 0; j < (height - 2 * (size_filter / 2)) / 2; j++) {
             for (int k = 0; k < (width - 2 * (size_filter / 2)) / 2; k++) {
-                w[i][j][k] = (float)(gen() - gen.min()) / (gen.max() - gen.min()) - 0.5; 
+                w[i][j][k] = 2.0 * (gen() - gen.min()) / (gen.max() - gen.min()) - 1.0; 
             }
         }
     }
     for (int i = 0; i < count_channel; i++) {
-        w_shift[i] = (float)(gen() - gen.min()) / (gen.max() - gen.min()) - 0.5;
+        w_shift[i] = 2.0 * (gen() - gen.min()) / (gen.max() - gen.min()) - 1.0;
     }
 }
 
-void cnn::init_input(const Mat &image, vector3i &input) {
+void cnn::init_input(const Mat &image, vector3f &input) {
     for (int i = 0; i < height; i++) {
         for (int j = 0; j < width; j++) {
             for (int k = 0; k < size_bgr; k++) {
-                input[i][j][k] = image.at<Vec3b>(i, j)[k];  
+                input[i][j][k] = (float)image.at<Vec3b>(i, j)[k];  
             }
         }
     }
 }
 
-void cnn::convolution(const vector3i &input, vector3i filter, int filter_shift, vector2i &output) {
-    int sum;
+void cnn::convolution(const vector3f &input, vector3f filter, float filter_shift, vector2f &output) {
+    float sum;
     for (int i = 0; i < height - 2 * (size_filter / 2); i++) {
         for (int j = 0; j < width - 2 * (size_filter / 2); j++) {
-            sum = 0;
+            sum = 0.0;
             for (int x = i; x < i + size_filter; x++) {
                 for (int y = j; y < j + size_filter; y++) {
                     for (int z = 0; z < size_bgr; z++) {
@@ -69,16 +69,16 @@ void cnn::convolution(const vector3i &input, vector3i filter, int filter_shift, 
     }
 }
 
-void cnn::ReLU(vector2i &inoutput) {
+void cnn::ReLU(vector2f &inoutput) {
     for (int i = 0; i < inoutput.size(); i++) {
         for (int j = 0; j < inoutput[0].size(); j++) {
-            inoutput[i][j] = max(inoutput[i][j], 0);
+            inoutput[i][j] = max(inoutput[i][j], 0.f);
         }
     }
 }
 
-void cnn::max_pooling(vector2i &inoutput) {
-    vector2i output(inoutput.size() / 2);
+void cnn::max_pooling(vector2f &inoutput) {
+    vector2f output(inoutput.size() / 2);
     for (int i = 0; i < inoutput.size() / 2; i++) {
         output[i].resize(inoutput[0].size() / 2);
     }
@@ -93,35 +93,18 @@ void cnn::max_pooling(vector2i &inoutput) {
     inoutput = output;
 }
 
-void cnn::pixel_soft_max(const vector<vector2i> &input, vector2f &output) {
-    float sum, max, tmp_max;
+void cnn::pixel_soft_max(vector<vector2f> &input) {
+    float sum;
     for (int i = 0; i <input[0].size(); i++) {
         for (int j = 0; j < input[0][0].size(); j++) {
-            sum = max = 0.0;
+            sum = 0.f;
             for (int k = 0; k < size_bgr; k++) {
                 sum += exp(input[k][i][j]);
             }
             for (int k = 0; k < size_bgr; k++) {
-                tmp_max = exp(input[k][i][j]) / sum;
-                if (tmp_max > max) max = tmp_max;
-            }
-            output[i][j] = max;
-        }
-    }
-}
-
-void cnn::fully_connected_layer(const vector2f &input, vector1f &class_img_predict) {
-    class_img_predict.resize(count_channel);
-    float sum;
-    for (int i = 0; i < count_channel; i++) {
-        sum = 0.0;
-        for (int j = 0; j < input.size(); j++) {
-            for (int k = 0; k < input[0].size(); k++) {
-                sum += input[j][k] * w[i][j][k];
+                input[k][i][j] = exp(input[k][i][j]) / sum;
             }
         }
-        sum += w_shift[i];
-        class_img_predict[i] = sum;
     }
 }
 
@@ -146,8 +129,8 @@ cnn::cnn(int _height, int _width)
     init_w();
 }
 
-void cnn::fit(const Mat &image, vector1f &class_img_predict) {
-    vector3i input(height);
+void cnn::fit(const Mat &image) {
+    vector3f input(height);
     for (int i = 0; i < height; i++) {
         input[i].resize(width);
         for (int j = 0; j < width; j++) {
@@ -156,16 +139,12 @@ void cnn::fit(const Mat &image, vector1f &class_img_predict) {
     }
     init_input(image, input);
 
-    vector<vector2i> outputs(count_filters);
+    vector<vector2f> outputs(count_filters);
     for (int i = 0; i < count_filters; i++) {
         outputs[i].resize(height - 2 * (size_filter / 2));
         for (int j = 0; j < height - 2 * (size_filter / 2); j++) {
             outputs[i][j].resize(width - 2 * (size_filter / 2));
         }
-    }
-    vector2f output((height - 2 * (size_filter / 2)) / 2);
-    for (int i = 0; i < (height - 2 * (size_filter / 2)) / 2; i++) {
-        output[i].resize((width - 2 * (size_filter / 2)) / 2);
     }
 
     for (int i = 0; i < count_filters; i++) {
@@ -180,7 +159,7 @@ void cnn::fit(const Mat &image, vector1f &class_img_predict) {
         max_pooling(outputs[i]);
     }
 
-    pixel_soft_max(outputs, output);
+    pixel_soft_max(outputs);
     
-    fully_connected_layer(output, class_img_predict);
+    cout << "Количество каналов " << outputs.size() << endl;
 }
